@@ -38,30 +38,12 @@
           </div>
 
           <div class="row">
-            <input id="search" placeholder="Buscar…" />
             <select id="filterCompleted">
               <option value="">Estado: todos</option>
               <option value="false">Pendientes</option>
               <option value="true">Completadas</option>
             </select>
-            <select id="filterPriority">
-              <option value="">Prioridad: todas</option>
-              <option value="2">Alta</option>
-              <option value="1">Media</option>
-              <option value="0">Baja</option>
-            </select>
-            <select id="sort">
-              <option value="created_at">Creación</option>
-              <option value="due_date">Vencimiento</option>
-              <option value="priority">Prioridad</option>
-              <option value="title">Título</option>
-              <option value="updated_at">Actualización</option>
-            </select>
-            <select id="order">
-              <option value="desc">desc</option>
-              <option value="asc">asc</option>
-            </select>
-            <button id="refreshBtn">Actualizar</button>
+           
           </div>
 
           <div id="tasks" class="tasks"></div>
