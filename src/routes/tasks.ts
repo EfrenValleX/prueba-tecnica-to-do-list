@@ -6,15 +6,28 @@ export const router = Router();
 
 /**
  * GET /tasks
- * Lista tareas (con filtro opcional por completed)
+ * Lista tareas con búsqueda, filtros y orden.
+ * Query params:
+ *  - q: string (busca en title/description, case-insensitive)
+ *  - completed: true/false/1/0
+ *  - priority: 0|1|2
+ *  - sort: created_at|due_date|priority|title|updated_at
+ *  - order: asc|desc
  */
 router.get('/', (req: Request, res: Response) => {
-  const { completed } = req.query;
+  const { q, completed, priority, sort = 'created_at', order = 'desc' } = req.query;
 
   const filters: string[] = [];
   const params: Record<string, unknown> = {};
 
-  if (completed !== undefined) {
+  // 🔎 Búsqueda por texto (title/description)
+  if (typeof q === 'string' && q.trim() !== '') {
+    filters.push('(LOWER(title) LIKE @q OR LOWER(description) LIKE @q)');
+    params.q = `%${q.trim().toLowerCase()}%`;
+  }
+
+  // ✅ Filtro completed
+  if (completed !== undefined && String(completed) !== '') {
     const c = toBool(completed);
     if (c !== undefined) {
       filters.push('completed = @completed');
@@ -22,8 +35,30 @@ router.get('/', (req: Request, res: Response) => {
     }
   }
 
+  // 🎯 Filtro priority
+  if (priority !== undefined && String(priority) !== '') {
+    const p = Number(priority);
+    if ([0, 1, 2].includes(p)) {
+      filters.push('priority = @priority');
+      params.priority = p;
+    }
+  }
+
+  // ↕️ Orden (whitelist para evitar SQL injection)
+  const allowedSort = new Set(['created_at', 'due_date', 'priority', 'title', 'updated_at']);
+  const sortBy = allowedSort.has(String(sort)) ? String(sort) : 'created_at';
+  const sortOrder = String(order).toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+
   const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
-  const items = all<Task>(`SELECT * FROM tasks ${where} ORDER BY created_at DESC`, params);
+
+  const sql = `
+    SELECT *
+    FROM tasks
+    ${where}
+    ORDER BY ${sortBy} ${sortOrder}
+  `;
+
+  const items = all<Task>(sql, params);
   res.json(items);
 });
 

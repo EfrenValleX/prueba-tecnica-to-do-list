@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>TO-DO List (frontend clásico)</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <div class="container">
@@ -38,12 +38,30 @@
           </div>
 
           <div class="row">
+            <input id="search" placeholder="Buscar…" />
             <select id="filterCompleted">
               <option value="">Estado: todos</option>
               <option value="false">Pendientes</option>
               <option value="true">Completadas</option>
             </select>
-           
+            <select id="filterPriority">
+              <option value="">Prioridad: todas</option>
+              <option value="2">Alta</option>
+              <option value="1">Media</option>
+              <option value="0">Baja</option>
+            </select>
+            <select id="sort">
+              <option value="created_at">Creación</option>
+              <option value="due_date">Vencimiento</option>
+              <option value="priority">Prioridad</option>
+              <option value="title">Título</option>
+              <option value="updated_at">Actualización</option>
+            </select>
+            <select id="order">
+              <option value="desc">desc</option>
+              <option value="asc">asc</option>
+            </select>
+            <button id="refreshBtn" type="button">Actualizar</button>
           </div>
 
           <div id="tasks" class="tasks"></div>
@@ -65,189 +83,222 @@
     </div>
 
     <script>
-      const API_BASE =
-        localStorage.getItem("API_BASE") || "http://localhost:3000";
-      document.getElementById("apiBase").textContent = API_BASE;
+      (() => {
+        const API_BASE = window.location.origin; // usa mismo host:puerto del backend
+        document.getElementById("apiBase").textContent = API_BASE;
 
-      const el = (q) => document.querySelector(q);
-      const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString() : "—");
-      const priorityPill = (p) =>
-        ({
-          2: ["Alta", "pill high"],
-          1: ["Media", "pill med"],
-          0: ["Baja", "pill low"],
-        }[p || 0]);
+        const el = (q) => document.querySelector(q);
+        const fmtDate = (iso) =>
+          iso ? new Date(iso).toLocaleDateString() : "—";
+        const priorityPill = (p) =>
+          ({
+            2: ["Alta", "pill high"],
+            1: ["Media", "pill med"],
+            0: ["Baja", "pill low"],
+          }[Number(p) || 0]);
 
-      async function api(path, opts = {}) {
-        const res = await fetch(API_BASE + path, {
-          headers: { "Content-Type": "application/json" },
-          ...opts,
-        });
-        if (!res.ok) {
-          const txt = await res.text();
-          throw new Error(`HTTP ${res.status}: ${txt}`);
+        async function api(path, opts = {}) {
+          const res = await fetch(API_BASE + path, {
+            headers: { "Content-Type": "application/json" },
+            ...opts,
+          });
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+          }
+          if (res.status === 204) return null;
+          return res.json();
         }
-        if (res.status === 204) return null;
-        return res.json();
-      }
 
-      async function load() {
-        const q = el("#search").value.trim();
-        const completed = el("#filterCompleted").value;
-        const priority = el("#filterPriority").value;
-        const sort = el("#sort").value;
-        const order = el("#order").value;
+        function val(id, def = "") {
+          const n = el("#" + id);
+          return n ? n.value : def;
+        }
 
-        const params = new URLSearchParams();
-        if (q) params.set("q", q);
-        if (completed !== "") params.set("completed", completed);
-        if (priority !== "") params.set("priority", priority);
-        params.set("sort", sort);
-        params.set("order", order);
+        async function load() {
+          try {
+            const q = val("search");
+            const completed = val("filterCompleted");
+            const priority = val("filterPriority");
+            const sort = val("sort", "created_at");
+            const order = val("order", "desc");
 
-        const data = await api("/tasks?" + params.toString());
-        renderList(data.items || data);
-      }
+            const p = new URLSearchParams();
+            if (q) p.set("q", q);
+            if (completed !== "") p.set("completed", completed);
+            if (priority !== "") p.set("priority", priority);
+            if (sort) p.set("sort", sort);
+            if (order) p.set("order", order);
 
-      function renderList(items) {
-        const wrap = el("#tasks");
-        wrap.innerHTML = "";
-        el("#stats").textContent = `${items.length} tareas`;
-        el("#empty").style.display = items.length ? "none" : "block";
+            const url = "/tasks" + (p.toString() ? `?${p.toString()}` : "");
+            console.log("[LOAD]", url);
+            const data = await api(url);
+            renderList(Array.isArray(data) ? data : data.items || []);
+          } catch (e) {
+            console.error(e);
+            alert("Error al cargar: " + e.message);
+          }
+        }
 
-        for (const t of items) {
-          const row = document.createElement("div");
-          row.className = "task" + (t.completed ? " completed" : "");
-          const cb = document.createElement("input");
-          cb.type = "checkbox";
-          cb.checked = !!t.completed;
-          cb.addEventListener("change", () =>
-            toggleCompleted(t.id, cb.checked)
+        function renderList(items) {
+          const wrap = el("#tasks");
+          wrap.innerHTML = "";
+          el("#stats").textContent = `${items.length} tareas`;
+          el("#empty").style.display = items.length ? "none" : "block";
+
+          for (const t of items) {
+            const row = document.createElement("div");
+            row.className = "task" + (t.completed ? " completed" : "");
+
+            const cb = document.createElement("input");
+            cb.type = "checkbox";
+            cb.checked = !!t.completed;
+            cb.addEventListener("change", () =>
+              toggleCompleted(t.id, cb.checked)
+            );
+
+            const [pLabel, pClass] = priorityPill(t.priority);
+            const center = document.createElement("div");
+            center.innerHTML = `
+        <div class="title" data-id="${
+          t.id
+        }" title="Doble click para renombrar">${escapeHtml(t.title)}</div>
+        <div class="meta">
+          <span class="pill ${pClass}">${pLabel}</span>
+          &nbsp;•&nbsp; Vence: ${fmtDate(t.due_date)}
+          &nbsp;•&nbsp; Creada: ${fmtDate(t.created_at)}
+        </div>`;
+            center.addEventListener("dblclick", () => inlineRename(t));
+
+            const actions = document.createElement("div");
+            const del = document.createElement("button");
+            del.textContent = "Eliminar";
+            del.className = "danger";
+            del.addEventListener("click", () => removeTask(t.id));
+            actions.appendChild(del);
+
+            row.appendChild(cb);
+            row.appendChild(center);
+            row.appendChild(actions);
+            wrap.appendChild(row);
+          }
+        }
+
+        function inlineRename(t) {
+          const titleEl = document.querySelector(`.title[data-id="${t.id}"]`);
+          if (!titleEl) return;
+          const input = document.createElement("input");
+          input.className = "inline-edit";
+          input.value = t.title || "";
+          input.addEventListener("keydown", async (e) => {
+            if (e.key === "Enter") {
+              const v = input.value.trim();
+              if (!v) return;
+              await updateTask(t.id, { title: v });
+            }
+            if (e.key === "Escape") load();
+          });
+          titleEl.replaceWith(input);
+          input.focus();
+        }
+
+        async function add() {
+          try {
+            const title = el("#title").value.trim();
+            if (!title) return alert("Escribe un título");
+            const description = el("#description").value.trim() || null;
+            const due_date = el("#due").value || null;
+            const priority = Number(el("#priority").value) || 0;
+            await api("/tasks", {
+              method: "POST",
+              body: JSON.stringify({ title, description, due_date, priority }),
+            });
+            el("#title").value = "";
+            el("#description").value = "";
+            el("#due").value = "";
+            el("#priority").value = "0";
+            await load();
+          } catch (e) {
+            alert("Error al crear: " + e.message);
+          }
+        }
+        async function toggleCompleted(id, checked) {
+          await api(`/tasks/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ completed: checked }),
+          });
+          await load();
+        }
+        async function updateTask(id, data) {
+          await api(`/tasks/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify(data),
+          });
+          await load();
+        }
+        async function removeTask(id) {
+          if (!confirm("¿Eliminar esta tarea?")) return;
+          await api(`/tasks/${id}`, { method: "DELETE" });
+          await load();
+        }
+        async function clearCompleted() {
+          const data = await api("/tasks");
+          const list = Array.isArray(data) ? data : data.items || [];
+          for (const t of list) {
+            if (t.completed) {
+              await api(`/tasks/${t.id}`, { method: "DELETE" });
+            }
+          }
+          await load();
+        }
+        function escapeHtml(str) {
+          return String(str).replace(
+            /[&<>"']/g,
+            (m) =>
+              ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+                "'": "&#039;",
+              }[m])
           );
-          const center = document.createElement("div");
-          const [pLabel, pClass] = priorityPill(t.priority);
-          center.innerHTML = `
-      <div class="title" data-id="${
-        t.id
-      }" title="Doble click para renombrar">${escapeHtml(t.title)}</div>
-      <div class="meta">
-        <span class="pill ${pClass}">${pLabel}</span>
-        &nbsp;•&nbsp; Vence: ${fmtDate(t.due_date)}
-        &nbsp;•&nbsp; Creada: ${fmtDate(t.created_at)}
-      </div>`;
-          center.addEventListener("dblclick", () => inlineRename(t));
-          const actions = document.createElement("div");
-          const del = document.createElement("button");
-          del.textContent = "Eliminar";
-          del.className = "danger";
-          del.addEventListener("click", () => removeTask(t.id));
-          actions.appendChild(del);
-
-          row.appendChild(cb);
-          row.appendChild(center);
-          row.appendChild(actions);
-          wrap.appendChild(row);
         }
-      }
 
-      function inlineRename(t) {
-        const titleEl = document.querySelector(`.title[data-id="${t.id}"]`);
-        const input = document.createElement("input");
-        input.className = "inline-edit";
-        input.value = t.title;
-        input.addEventListener("keydown", async (e) => {
-          if (e.key === "Enter") {
-            const v = input.value.trim();
-            if (!v) return;
-            await updateTask(t.id, { title: v });
-          }
-          if (e.key === "Escape") load();
+        // Enganchar eventos SOLO si existen (por si vuelves a ocultar algo)
+        document.addEventListener("DOMContentLoaded", () => {
+          el("#addBtn")?.addEventListener("click", add);
+          el("#refreshBtn")?.addEventListener("click", load);
+          el("#clearBtn")?.addEventListener("click", clearCompleted);
+          el("#seedBtn")?.addEventListener("click", async () => {
+            for (const s of [
+              {
+                title: "Revisar correo",
+                description: "Inbox cero",
+                priority: 1,
+              },
+              {
+                title: "Pagar servicios",
+                description: "Luz/agua",
+                priority: 2,
+              },
+              { title: "Gimnasio", description: "45 min", priority: 0 },
+            ]) {
+              await api("/tasks", { method: "POST", body: JSON.stringify(s) });
+            }
+            await load();
+          });
+          [
+            "search",
+            "filterCompleted",
+            "filterPriority",
+            "sort",
+            "order",
+          ].forEach((id) => {
+            el("#" + id)?.addEventListener("change", load);
+          });
+          load();
         });
-        titleEl.replaceWith(input);
-        input.focus();
-      }
-
-      async function add() {
-        const title = el("#title").value.trim();
-        if (!title) return alert("Escribe un título");
-        const description = el("#description").value.trim() || null;
-        const due_date = el("#due").value || null;
-        const priority = Number(el("#priority").value);
-        await api("/tasks", {
-          method: "POST",
-          body: JSON.stringify({ title, description, due_date, priority }),
-        });
-        el("#title").value = "";
-        el("#description").value = "";
-        el("#due").value = "";
-        el("#priority").value = "0";
-        await load();
-      }
-      async function toggleCompleted(id, checked) {
-        await api(`/tasks/${id}`, {
-          method: "PATCH",
-          body: JSON.stringify({ completed: checked }),
-        });
-        await load();
-      }
-      async function updateTask(id, data) {
-        await api(`/tasks/${id}`, {
-          method: "PATCH",
-          body: JSON.stringify(data),
-        });
-        await load();
-      }
-      async function removeTask(id) {
-        if (!confirm("¿Eliminar esta tarea?")) return;
-        await api(`/tasks/${id}`, { method: "DELETE" });
-        await load();
-      }
-      async function clearCompleted() {
-        const data = await api("/tasks");
-        const list = data.items || data;
-        for (const t of list) {
-          if (t.completed) {
-            await api(`/tasks/${t.id}`, { method: "DELETE" });
-          }
-        }
-        await load();
-      }
-      async function seed() {
-        const samples = [
-          { title: "Revisar correo", description: "Inbox cero", priority: 1 },
-          { title: "Pagar servicios", description: "Luz/agua", priority: 2 },
-          { title: "Gimnasio", description: "45 min", priority: 0 },
-        ];
-        for (const s of samples) {
-          await api("/tasks", { method: "POST", body: JSON.stringify(s) });
-        }
-        await load();
-      }
-      function escapeHtml(str) {
-        return String(str).replace(
-          /[&<>"']/g,
-          (m) =>
-            ({
-              "&": "&amp;",
-              "<": "&lt;",
-              ">": "&gt;",
-              '"': "&quot;",
-              "'": "&#039;",
-            }[m])
-        );
-      }
-
-      el("#addBtn").addEventListener("click", add);
-      el("#refreshBtn").addEventListener("click", load);
-      el("#clearBtn").addEventListener("click", clearCompleted);
-      el("#seedBtn").addEventListener("click", seed);
-      ["search", "filterCompleted", "filterPriority", "sort", "order"].forEach(
-        (id) => el("#" + id).addEventListener("change", load)
-      );
-
-      load().catch((err) =>
-        alert("Error al cargar tareas. ¿API encendida?\n" + err.message)
-      );
+      })();
     </script>
   </body>
 </html>
